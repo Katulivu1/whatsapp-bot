@@ -1,1 +1,79 @@
+// index.js
+import express from "express";
+import axios from "axios";
+
+const app = express();
+app.use(express.json());
+
+// Replace with your info
+const VERIFY_TOKEN = "YOUR_VERIFY_TOKEN"; // any secret phrase you choose
+const WHATSAPP_TOKEN = "YOUR_WHATSAPP_ACCESS_TOKEN";
+const PHONE_NUMBER_ID = "YOUR_PHONE_NUMBER_ID";
+
+// 🔹 1. Verify webhook (required by Meta)
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode && token === VERIFY_TOKEN) {
+    console.log("Webhook verified");
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+// 🔹 2. Handle incoming messages
+app.post("/webhook", async (req, res) => {
+  try {
+    const body = req.body;
+
+    // Check if this is a message event
+    if (body.object) {
+      const entry = body.entry?.[0];
+      const changes = entry.changes?.[0];
+      const message = changes.value?.messages?.[0];
+
+      if (message && message.text) {
+        const from = message.from; // sender phone number
+        const text = message.text.body;
+
+        console.log("Received message:", text);
+
+        // Detect link
+        const linkRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+        if (linkRegex.test(text)) {
+          console.log("⚠️ Link detected from", from);
+
+          // Send warning message
+          await axios.post(
+            `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`,
+            {
+              messaging_product: "whatsapp",
+              to: from,
+              text: {
+                body:
+                  "🚫 Links are not allowed in this group. Please avoid sharing them or you may be removed.",
+              },
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+              },
+            }
+          );
+        }
+      }
+    }
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error("Error handling webhook:", error);
+    res.sendStatus(500);
+  }
+});
+
+// 🔹 3. Start the server
+app.listen(3000, () => console.log("✅ Server running on port 3000"));
 
